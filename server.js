@@ -16,9 +16,7 @@ var fs = require('fs');
 var mentionBot = require('./mention-bot.js');
 var messageGenerator = require('./message.js');
 var util = require('util');
-var scheduler = require('node-schedule');
-var parseTime = require('./scheduleTimeParser.js');
-var jobs = [];
+var schedule = require('./schedule.js');
 
 var GitHubApi = require('github');
 
@@ -171,6 +169,8 @@ async function work(body) {
     return;
   }
 
+  // TODO is (skipCollaboratorPR == true) and (pull request made by collaborator?)
+
   var org = null;
 
   if (data.organization) {
@@ -210,46 +210,48 @@ async function work(body) {
       defaultMessageGenerator
     );
   }
-  if(repoConfig.hasOwnProperty('delayed') && repoConfig.delayed){
 
-    scheduler.scheduleJob(parseTime(repoConfig.delayedUntil), function(){
-      github.pullRequests.get({
-        user: data.repository.owner.login,
-        repo: data.repository.name,
-        number: data.pull_request.number
-      }, function(err, newData) {
-        if (newData.state !== 'open') {
-          console.log(
-            'Skipping because action is ' + newData.action + '.',
-            'We only care about: "' + repoConfig.actions.join("', '") + '"'
-          );
-          return;
-        }
-
-        if (repoConfig.skipAlreadyAssignedPR &&
-          newData.pull_request.assignee &&
-          newData.pull_request.assignee.login) {
-          console.log('Skipping because pull request is already assigned.');
-          return;
-        }
-
-        github.issues.createComment({
-          user: data.repository.owner.login, // 'fbsamples'
-          repo: data.repository.name, // 'bot-testing'
-          number: data.pull_request.number, // 23
-          body: message
-        });
-      });
-    });
+  function createComment() {
+    console.log('COmmented with message', message);
     return;
+    github.issues.createComment({
+      user: data.repository.owner.login, // 'fbsamples'
+      repo: data.repository.name, // 'bot-testing'
+      number: data.pull_request.number, // 23
+      body: message
+    });
   }
+  
+  function cbScheduledJob() {
+    github.pullRequests.get({
+      user: data.repository.owner.login,
+      repo: data.repository.name,
+      number: data.pull_request.number
+    }, function(err, newData) {
+      if (newData.state !== 'open') {
+        console.log(
+          'Skipping because action is ' + newData.action + '.',
+          'We only care about: "' + repoConfig.actions.join("', '") + '"'
+        );
+        return;
+      }
 
-  github.issues.createComment({
-    user: data.repository.owner.login, // 'fbsamples'
-    repo: data.repository.name, // 'bot-testing'
-    number: data.pull_request.number, // 23
-    body: message
-  });
+      if (repoConfig.skipAlreadyAssignedPR &&
+        newData.pull_request.assignee &&
+        newData.pull_request.assignee.login) {
+        console.log('Skipping because pull request is already assigned.');
+        return;
+      }
+
+      createComment();
+    });
+  }
+  
+  if(repoConfig.hasOwnProperty('delayed') && repoConfig.delayed) {
+    schedule.performAt(schedule.parse(repoConfig.delayedUntil), cbScheduledJob);
+  }else{
+    createComment();
+  }
 
   return;
 };

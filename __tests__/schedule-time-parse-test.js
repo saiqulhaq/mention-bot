@@ -8,7 +8,7 @@
  */
 
 jest
-  .dontMock('../scheduleTimeParser.js')
+  .dontMock('../scheduleTimeParse.js')
   .dontMock('minimatch');
 
 var timeParser: (delayTime: string) => Date = require('../scheduleTimeParser.js');
