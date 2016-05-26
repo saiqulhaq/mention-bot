@@ -125,7 +125,7 @@ async function work(body) {
     findPotentialReviewers: true,
     actions: ['opened'],
     skipAlreadyAssignedPR: false,
-    delayed: false
+    delayed: false,
     delayedUntil: "3d"
   };
 
@@ -145,31 +145,45 @@ async function work(body) {
     console.error(e);
   }
 
-  if (repoConfig.actions.indexOf(data.action) === -1) {
-    console.log(
-      'Skipping because action is ' + data.action + '.',
-      'We only care about: "' + repoConfig.actions.join("', '") + '"'
-    );
+  function isConditionValid(repoConfig, data) {
+    if (repoConfig.actions.indexOf(data.action) === -1) {
+      console.log(
+        'Skipping because action is ' + data.action + '.',
+        'We only care about: "' + repoConfig.actions.join("', '") + '"'
+      );
+      return false;
+    }
+
+    if (repoConfig.skipTitle &&
+        data.pull_request.title.indexOf(repoConfig.skipTitle) > -1) {
+      console.log('Skipping because pull request title contains: ' + repoConfig.skipTitle);
+      return false;
+    }
+
+    if (repoConfig.skipAlreadyAssignedPR &&
+        data.pull_request.assignee &&
+        data.pull_request.assignee.login) {
+      console.log('Skipping because pull request is already assigned.');
+      return false;
+    }
+
+    if (process.env.REQUIRED_ORG) {
+      if(repoConfig.requiredOrgs.indexOf(process.env.REQUIRED_ORG) === -1) {
+        repoConfig.requiredOrgs.push(process.env.REQUIRED_ORG);
+      }
+    }
+
+    if (repoConfig.userBlacklistForPR.indexOf(data.pull_request.user.login) >= 0) {
+      console.log('Skipping because blacklisted user created Pull Request.');
+      return false;
+    }
+
+    return true
+  }
+
+  if(!isConditionValid(repoConfig, data)) {
     return;
   }
-
-  if (repoConfig.skipAlreadyAssignedPR &&
-    data.pull_request.assignee &&
-    data.pull_request.assignee.login) {
-    console.log('Skipping because pull request is already assigned.');
-    return;
-  }
-
-  if (process.env.REQUIRED_ORG) {
-    repoConfig.requiredOrgs.push(process.env.REQUIRED_ORG);
-  }
-
-  if (repoConfig.userBlacklistForPR.indexOf(data.pull_request.user.login) >= 0) {
-    console.log('Skipping because blacklisted user created Pull Request.');
-    return;
-  }
-
-  // TODO is (skipCollaboratorPR == true) and (pull request made by collaborator?)
 
   var org = null;
 
@@ -211,54 +225,58 @@ async function work(body) {
     );
   }
 
-  function commentLater(resolve, reject) {
-    github.pullRequests.get({
-      user: data.repository.owner.login,
-      repo: data.repository.name,
-      number: data.pull_request.number
-    }, function(err, newData) {
-      if(err){
-        return reject(err);
-      }
-
-      if (repoConfig.actions.index(newData.state) === -1) {
-        console.log(
-          'Skipping because action is ' + newData.action + '.',
-          'We only care about: "' + repoConfig.actions.join("', '") + '"'
-        );
-        return;
-      }
-
-      if (repoConfig.skipAlreadyAssignedPR &&
-        newData.pull_request.assignee &&
-        newData.pull_request.assignee.login) {
-        console.log('Skipping because pull request is already assigned.');
-        return;
-      }
-
-      github.issues.createComment({
-        user: data.repository.owner.login, // 'fbsamples'
-        repo: data.repository.name, // 'bot-testing'
-        number: data.pull_request.number, // 23
-        body: message
-      }, function(err, result){
-        if(err){
-          reject(err);
-        }
-        resolve(result)
-      })
-    });
-  }
-
-  if(repoConfig.hasOwnProperty('delayed') && repoConfig.delayed) {
-    schedule.performAt(schedule.parse(repoConfig.delayedUntil), commentLater);
-  }else{
+  function createComment(data, message, resolve, reject) {
     github.issues.createComment({
       user: data.repository.owner.login, // 'fbsamples'
       repo: data.repository.name, // 'bot-testing'
       number: data.pull_request.number, // 23
       body: message
+    }, function(err, result) {
+      if(err){
+        if(typeof reject === 'function') return reject(err)
+      }
     })
+  }
+
+  function assignReviewer(data, reviewers, resolve, reject) {
+    if (repoConfig.assignToReviewer) {
+      github.issues.edit({
+        user: data.repository.owner.login, // 'fbsamples'
+        repo: data.repository.name, // 'bot-testing'
+        number: data.pull_request.number, // 23
+        assignee: reviewers[0]
+      }, function(err, result) {
+        if(err){
+          if(typeof reject === 'function') return reject(err)
+        }
+      });
+    }
+  }
+
+  if(repoConfig.hasOwnProperty('delayed') && repoConfig.delayed) {
+    schedule.performAt(schedule.parse(repoConfig.delayedUntil), function(resolve, reject) {
+      github.pullRequests.get({
+        user: data.repository.owner.login,
+        repo: data.repository.name,
+        number: data.pull_request.number
+      }, function(err, newData) {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        if(!isConditionValid(repoConfig, newData)) {
+          return;
+        }
+
+        createComment(newData, message, resolve, reject);
+        assignReviewer(newData, reviewers, resolve, reject);
+        resolve('Done')
+      });
+    });
+  }else{
+    createComment(data, message);
+    assignReviewer(newData, reviewers);
   }
 
   return;
