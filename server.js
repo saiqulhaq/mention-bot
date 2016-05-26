@@ -23,7 +23,7 @@ var GitHubApi = require('github');
 var CONFIG_PATH = '.mention-bot';
 
 if (!process.env.GITHUB_TOKEN) {
-  console.error('The bot was started without a github account to post with.');
+  console.error('The bot was started without a GitHub account to post with.');
   console.error('To get started:');
   console.error('1) Create a new account for the bot');
   console.error('2) Settings > Personal access tokens > Generate new token');
@@ -38,7 +38,7 @@ if (!process.env.GITHUB_TOKEN) {
 
 if (!process.env.GITHUB_USER) {
   console.warn(
-    'There was no github user detected.',
+    'There was no GitHub user detected.',
     'This is fine, but mention-bot won\'t work with private repos.'
   );
   console.warn(
@@ -126,7 +126,9 @@ async function work(body) {
     actions: ['opened'],
     skipAlreadyAssignedPR: false,
     delayed: false,
-    delayedUntil: "3d"
+    delayedUntil: "3d",
+    assignToReviewer: false,
+    skipTitle: ""
   };
 
   try {
@@ -145,7 +147,7 @@ async function work(body) {
     console.error(e);
   }
 
-  function isConditionValid(repoConfig, data) {
+  function isValid(repoConfig, data) {
     if (repoConfig.actions.indexOf(data.action) === -1) {
       console.log(
         'Skipping because action is ' + data.action + '.',
@@ -178,10 +180,16 @@ async function work(body) {
       return false;
     }
 
+    if (repoConfig.skipTitle &&
+        data.pull_request.title.indexOf(repoConfig.skipTitle) > -1) {
+      console.log('Skipping because pull request title contains: ' + repoConfig.skipTitle)
+      return;
+    }
+
     return true
   }
 
-  if(!isConditionValid(repoConfig, data)) {
+  if(!isValid(repoConfig, data)) {
     return;
   }
 
@@ -259,24 +267,24 @@ async function work(body) {
         user: data.repository.owner.login,
         repo: data.repository.name,
         number: data.pull_request.number
-      }, function(err, newData) {
+      }, function(err, currentData) {
         if (err) {
           reject(err);
           return;
         }
 
-        if(!isConditionValid(repoConfig, newData)) {
+        if(!isValid(repoConfig, currentData)) {
           return;
         }
 
-        createComment(newData, message, resolve, reject);
-        assignReviewer(newData, reviewers, resolve, reject);
+        createComment(currentData, message, resolve, reject);
+        assignReviewer(currentData, reviewers, resolve, reject);
         resolve('Done')
       });
     });
   }else{
     createComment(data, message);
-    assignReviewer(newData, reviewers);
+    assignReviewer(data, reviewers);
   }
 
   return;
