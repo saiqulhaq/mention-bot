@@ -125,8 +125,8 @@ async function work(body) {
     findPotentialReviewers: true,
     actions: ['opened'],
     skipAlreadyAssignedPR: false,
-    delayed: true,
-    delayedUntil: "1m"
+    delayed: false
+    delayedUntil: "3d"
   };
 
   try {
@@ -211,24 +211,17 @@ async function work(body) {
     );
   }
 
-  function createComment() {
-    console.log('COmmented with message', message);
-    return;
-    github.issues.createComment({
-      user: data.repository.owner.login, // 'fbsamples'
-      repo: data.repository.name, // 'bot-testing'
-      number: data.pull_request.number, // 23
-      body: message
-    });
-  }
-  
-  function cbScheduledJob() {
+  function commentLater(resolve, reject) {
     github.pullRequests.get({
       user: data.repository.owner.login,
       repo: data.repository.name,
       number: data.pull_request.number
     }, function(err, newData) {
-      if (newData.state !== 'open') {
+      if(err){
+        return reject(err);
+      }
+
+      if (repoConfig.actions.index(newData.state) === -1) {
         console.log(
           'Skipping because action is ' + newData.action + '.',
           'We only care about: "' + repoConfig.actions.join("', '") + '"'
@@ -243,14 +236,29 @@ async function work(body) {
         return;
       }
 
-      createComment();
+      github.issues.createComment({
+        user: data.repository.owner.login, // 'fbsamples'
+        repo: data.repository.name, // 'bot-testing'
+        number: data.pull_request.number, // 23
+        body: message
+      }, function(err, result){
+        if(err){
+          reject(err);
+        }
+        resolve(result)
+      })
     });
   }
-  
+
   if(repoConfig.hasOwnProperty('delayed') && repoConfig.delayed) {
-    schedule.performAt(schedule.parse(repoConfig.delayedUntil), cbScheduledJob);
+    schedule.performAt(schedule.parse(repoConfig.delayedUntil), commentLater);
   }else{
-    createComment();
+    github.issues.createComment({
+      user: data.repository.owner.login, // 'fbsamples'
+      repo: data.repository.name, // 'bot-testing'
+      number: data.pull_request.number, // 23
+      body: message
+    })
   }
 
   return;

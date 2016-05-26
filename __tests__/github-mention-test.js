@@ -344,10 +344,6 @@ describe('Github Mention', function() {
         expect(owners.indexOf('ghuser')).toEqual(-1);
       });
     });
-
-    pit('Has ability to delay the comment until specified time', function() {
-
-    });
   });
 
   it('ParseDiffEmpty', function() {

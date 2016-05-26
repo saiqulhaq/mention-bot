@@ -17,21 +17,23 @@ var nodeSchedule = require('node-schedule');
 module.exports = {
   jobs: [],
 
-  work: function(time, callback){
-    var self = this;
-    return new Promise(function(resolve, reject){
-      var job = nodeSchedule.scheduleJob(time, callback, function(err, result){
-        if(err) {
-          reject(err);
-        }
-        resolve(result);
-      });
-      self.jobs.push(job);
-    })
+  work: function(time: Date, callback){
+    var promise: Promise = new Promise(function(resolve, reject: (error: any) => void){
+      callback(resolve, reject);
+    });
+
+    var job = nodeSchedule.scheduleJob(time, promise);
+    this.jobs.push(job);
+
+    return promise;
   },
 
-  performAt: async function(time: Date, callback): object {
-    await this.work(time, callback);
+  performAt: async function(time: Date, callback) {
+    try {
+      await this.work(time, callback);
+    } catch(e) {
+      console.error(e)
+    }
   },
 
   parse: function(delayTime: string): Date {
@@ -67,20 +69,20 @@ module.exports = {
       throw new Error(invalidTimeMsg);
     }
 
-    // switch (parsedTime[2][0]) {
-    //   case 'm':
-    //     minutes += time;
-    //     break;
-    //   case 'h':
-    //     hours += time;
-    //     break;
-    //   case 'd':
-    //     day += time;
-    //     break;
-    //   default:
-    //     throw new Error(invalidTimeMsg);
-    // }
+    switch (parsedTime[2][0]) {
+      case 'm':
+        minutes += time;
+        break;
+      case 'h':
+        hours += time;
+        break;
+      case 'd':
+        day += time;
+        break;
+      default:
+        throw new Error(invalidTimeMsg);
+    }
 
-    return new Date(year, month, day, hours, minutes, curTime.getSeconds() + 15, 0);
+    return new Date(year, month, day, hours, minutes, curTime.getSeconds(), 0);
   }
 };
